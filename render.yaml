@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: groundwater-api
+    env: python
+    buildCommand: ""
+    startCommand: gunicorn -w 4 -b 0.0.0.0:10000 app:app
+    envVars:
+      - key: PORT
+        value: 10000
+    autoDeploy: true
