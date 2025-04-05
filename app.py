@@ -60,36 +60,34 @@ def predict():
         if errors:
             return jsonify({'errors': errors, 'status': 'error'}), 400
 
-        # Filter data for that location and up to given year
-        group = data[(data['LAT'] == lat) & (data['LON'] == lon) & (data['YEAR'] < year)].sort_values(by='YEAR')
+        # Filter historical data
+        group = data[(data['LAT'] == lat) & (data['LON'] == lon)].sort_values(by='YEAR')
 
         if group['GROUNDWATER'].isnull().all() or len(group) < 12:
             return jsonify({'error': 'Insufficient historical yearly groundwater data', 'status': 'error'}), 400
 
-        # Take last 12 years only
+        # Take last 12 years of groundwater data
         last_12_years = group['GROUNDWATER'].fillna(0).values[-12:].reshape(-1, 1)
         scaled_input = scaler.transform(last_12_years).reshape(1, 12, 1)
 
-        # Calculate how many years to forecast
-        last_year = group['YEAR'].max()
-        future_years = year - last_year
-        if future_years <= 0:
-            return jsonify({'error': 'Target year must be after last available year in data', 'status': 'error'}), 400
-
+        # Predict for 8 years: (year - 7) to year
+        prediction_years = list(range(year - 7, year + 1))
         future_input = scaled_input.reshape(12, 1)
         future_predictions_scaled = []
+        prediction_dict = {}
 
-        for _ in range(future_years):
+        for y in prediction_years:
             pred_scaled = model.predict(future_input.reshape(1, 12, 1))[0]
-            future_predictions_scaled.append(pred_scaled[0])
+            pred_actual = scaler.inverse_transform(np.array([[pred_scaled[0]]]))[0, 0]
+            prediction_dict[y] = round(float(pred_actual), 2)
+
+            # Shift input window
             future_input = np.append(future_input[1:], pred_scaled).reshape(12, 1)
 
-        final_prediction = scaler.inverse_transform(np.array([[future_predictions_scaled[-1]]]))[0, 0]
+        logger.info(f"✅ Predictions: {prediction_dict}")
 
-        logger.info(f"✅ Predicted groundwater level for {year}: {final_prediction:.2f}")
         return jsonify({
-            'prediction': float(final_prediction),
-            'year': year,
+            'predictions': prediction_dict,
             'latitude': lat,
             'longitude': lon,
             'status': 'success'
@@ -98,6 +96,7 @@ def predict():
     except Exception as e:
         logger.error(f"❌ Exception during prediction: {e}")
         return jsonify({'error': 'Internal server error', 'details': str(e), 'status': 'error'}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
